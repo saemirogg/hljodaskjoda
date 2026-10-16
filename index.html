@@ -186,7 +186,6 @@ dialog::backdrop{background:rgba(10,14,24,.55)}
 .dock-toggle svg{transition:transform .2s}
 #side.open .dock-toggle svg{transform:rotate(180deg)}
 #grid[data-k] .cell.hot{box-shadow:inset 0 0 0 max(3px,1cqmin) var(--c)}
-#play.dragging .sheet{opacity:.15;pointer-events:none}
 #fx{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:60}
 
 @media (max-width:860px){ .top-grid,.cats{grid-template-columns:minmax(0,1fr)} }
@@ -218,6 +217,7 @@ dialog::backdrop{background:rgba(10,14,24,.55)}
   .sheet{display:none;position:absolute;z-index:20;overflow:auto;background:var(--surface);border-radius:18px;padding:12px;box-shadow:var(--shadow),0 0 0 1.5px var(--line)}
   #side.open .sheet{display:flex}
   .sheet .pieces{display:none}
+  #play.dragging .sheet{opacity:.15}
   .sheet .words{flex-direction:row;flex-wrap:wrap;gap:6px 14px}
   .sheet .tray{box-shadow:none;background:var(--surface-2);padding:10px}
 }
@@ -720,9 +720,11 @@ var touchLift = 56;   // finger-held pieces are drawn above the fingertip so the
 $('#side').addEventListener('pointerdown', function(ev){
   var b = ev.target.closest('.piece, .bucket'); if(!b || b.classList.contains('used') || b.classList.contains('empty') || ev.button>0) return;
   audio();
+  if(drag){ endDrag(); drag = null; }
   drag = {p:b.dataset.k, x:ev.clientX, y:ev.clientY, moved:false, id:ev.pointerId, el:b, off:ev.pointerType==='touch'?touchLift:0};
   try{ b.setPointerCapture(ev.pointerId); }catch(e){}
-  b.addEventListener('pointermove', onMove); b.addEventListener('pointerup', onUp); b.addEventListener('pointercancel', onCancel);
+  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onCancel);
+  window.addEventListener('blur', onCancel);
 });
 function cellAt(x,y){
   var target = document.elementFromPoint(x,y);
@@ -735,7 +737,9 @@ function setHot(c){
   if(hot) hot.classList.add('hot');
 }
 function onMove(ev){
-  if(!drag) return;
+  if(!drag || ev.pointerId!==drag.id) return;
+  // safety net: if a mouse button release was missed, treat the next move as the release
+  if(ev.pointerType==='mouse' && ev.buttons===0){ onUp(ev); return; }
   if(!drag.moved && Math.hypot(ev.clientX-drag.x, ev.clientY-drag.y)>6){
     drag.moved = true; ghost.dataset.k = drag.p; ghost.hidden = false;
     $('#grid').dataset.k = drag.p; $('#play').classList.add('dragging'); setDock(false);
@@ -748,12 +752,14 @@ function onMove(ev){
 }
 function endDrag(){
   if(!drag) return;
-  var b = drag.el; b.removeEventListener('pointermove', onMove); b.removeEventListener('pointerup', onUp); b.removeEventListener('pointercancel', onCancel);
+  var b = drag.el;
+  document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onCancel);
+  window.removeEventListener('blur', onCancel);
   try{ b.releasePointerCapture(drag.id); }catch(e){}
   ghost.hidden = true; setHot(null); $('#play').classList.remove('dragging'); delete $('#grid').dataset.k;
 }
 function onUp(ev){
-  if(!drag) return;
+  if(!drag || ev.pointerId!==drag.id) return;
   var d = drag; endDrag(); drag = null;
   if(d.moved){
     var c = cellAt(ev.clientX, ev.clientY-d.off);
